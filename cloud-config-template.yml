@@ -1,0 +1,120 @@
+#cloud-config
+
+# { { { variable } } }
+
+packages:
+ - jq
+ - traceroute
+
+runcmd:
+- apt-get update
+- apt-get install -y apt-transport-https ca-certificates
+- for i in 1 2 3 4 5; do curl --max-time 60 -fsSL https://apt.dockerproject.org/gpg | apt-key add -; [ $? -eq 0 ] && break || sleep 5; done
+- echo "deb https://mirror.azure.cn/docker-engine/apt/repo/ ubuntu-xenial main" | sudo tee /etc/apt/sources.list.d/docker.list
+- apt-get update
+- apt-get install -y docker-engine
+- apt-get install -y docker-compose
+- mkdir -p /etc/docker-registry/certs
+- mkdir -p /etc/docker-registry/manifests
+
+write_files:
+- path: "/etc/docker-registry/certs/server.crt"
+  permissions: "0644"
+  encoding: "base64"
+  owner: "root"
+  content: |
+    {{{serverCertificate}}}
+
+- path: "/etc/docker-registry/certs/server.key"
+  permissions: "0644"
+  encoding: "base64"
+  owner: "root"
+  content: |
+    {{{serverKey}}}
+
+- path: "/etc/docker-registry/manifests/docker-compose.yml"
+  permissions: "0644"
+  owner: "root"
+  content: |
+    registry:
+      container_name: myregistry
+      restart: always
+      image: registry
+      ports:
+        - 5000:5000
+      environment:
+        REGISTRY_HTTP_TLS_CERTIFICATE: /certs/server.crt
+        REGISTRY_HTTP_TLS_KEY: /certs/server.key
+        REGISTRY_STORAGE: azure
+        REGISTRY_STORAGE_AZURE_ACCOUNTNAME: "<<<variables('registryStorageAccountName')>>>"
+        REGISTRY_STORAGE_AZURE_ACCOUNTKEY: "<<<listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('registryStorageAccountName')), providers('Microsoft.Storage', 'storageAccounts').apiVersions[0]).keys[0].value>>>"
+        REGISTRY_STORAGE_AZURE_CONTAINER: "<<<variables('registryStorageContainerName')>>>"
+        REGISTRY_STORAGE_AZURE_REALM: "core.chinacloudapi.cn"
+      volumes:
+        - /etc/docker-registry/certs:/certs
+
+- path: "/etc/systemd/system/docker-registry.service"
+  permissions: "0644"
+  owner: "root"
+  content: |
+    [Unit]
+    Description=Docker registry
+    Requires=docker.service
+    After=docker.service
+
+    [Service]
+    Restart=always
+    TimeoutStartSec=0
+    RestartSec=5s
+    ExecStartPre=/usr/bin/docker pull mirror.azure.cn:5000/library/registry
+    ExecStartPre=/usr/bin/docker-compose -f /etc/docker-registry/manifests/docker-compose.yml up -d
+    ExecStart=/bin/echo "started."
+
+    [Install]
+    WantedBy=multi-user.target
+
+- path: "/etc/docker-registry/manifests/create-blob.sh"
+  permissions: "0655"
+  owner: "root"
+  content: |
+    #!/bin/bash
+    function ensureDocker() {
+        systemctl enable docker
+        systemctl restart docker
+        dockerStarted=1
+        for i in {1..900}; do
+            if ! /usr/bin/docker info; then
+                echo "status $?"
+                /bin/systemctl restart docker
+            else
+                echo "docker started"
+                dockerStarted=0
+                break
+            fi
+            sleep 1
+        done
+        if [ $dockerStarted -ne 0 ]
+        then
+            echo "docker did not start"
+            exit 1
+        fi
+    }
+
+    function createStorageContainer() {
+        docker pull mirror.azure.cn:5000/microsoft/azure-cli
+
+        LENGTH=$(docker run --rm mirror.azure.cn:5000/microsoft/azure-cli /bin/bash -c "azure storage container list --json -c \\"DefaultEndpointsProtocol=https;AccountName=<<<variables('registryStorageAccountName')>>>;AccountKey=<<<listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('registryStorageAccountName')), providers('Microsoft.Storage', 'storageAccounts').apiVersions[0]).keys[0].value>>>;BlobEndpoint=https://<<<variables('registryStorageAccountName')>>>.blob.core.chinacloudapi.cn;\\" -p <<<variables('registryStorageContainerName')>>>" | jq ". | length")
+
+        if [ $LENGTH -eq 0 ];then
+          docker run --rm mirror.azure.cn:5000/microsoft/azure-cli /bin/bash -c "azure storage container create -p Container -c \\"DefaultEndpointsProtocol=https;AccountName=<<<variables('registryStorageAccountName')>>>;AccountKey=<<<listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('registryStorageAccountName')), providers('Microsoft.Storage', 'storageAccounts').apiVersions[0]).keys[0].value>>>;BlobEndpoint=https://<<<variables('registryStorageAccountName')>>>.blob.core.chinacloudapi.cn;\\" --container <<<variables('registryStorageContainerName')>>>"
+        fi
+    }
+
+    ensureDocker
+    systemctl enable docker
+    systemctl restart docker
+    systemctl enable docker-registry
+    systemctl restart docker-registry
+    createStorageContainer
+
+    echo "Storage container created."
