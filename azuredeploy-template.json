@@ -104,6 +104,10 @@
         "subnetName": "regvmsubnet",
         "subnetPrefix": "10.0.0.0/24",
         "publicIPAddressType": "Dynamic",
+        "firstConsecutiveStaticIP": "10.0.0.4",
+        "masterFirstAddrOctets": "[split(variables('firstConsecutiveStaticIP'),'.')]",
+        "masterFirstAddrOctet4": "[variables('masterFirstAddrOctets')[3]]",
+        "masterFirstAddrPrefix": "[concat(variables('masterFirstAddrOctets')[0],'.',variables('masterFirstAddrOctets')[1],'.',variables('masterFirstAddrOctets')[2],'.')]",
         "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('vnetName'))]",
         "subnetRef": "[concat(variables('vnetID'),'/subnets/',variables ('subnetName'))]",
         "publicIPAddressID": "[resourceId('Microsoft.Network/publicIPAddresses',variables('publicIPAddressName'))]",
@@ -189,7 +193,8 @@
                 "ipConfigurations": [{
                     "name": "ipconfig1",
                     "properties": {
-                        "privateIPAllocationMethod": "Dynamic",
+                        "privateIPAddress": "[concat(variables('masterFirstAddrPrefix'), copyIndex(int(variables('masterFirstAddrOctet4'))))]",
+                        "privateIPAllocationMethod": "Static",
                         "subnet": {
                             "id": "[variables('subnetRef')]"
                         },
@@ -361,7 +366,7 @@
                 "typeHandlerVersion": "2.0",
                 "autoUpgradeMinorVersion": true,
                 "settings": {
-                    "commandToExecute": "/usr/bin/nohup /bin/bash -c \"/bin/bash /etc/docker-registry/manifests/create-blob.sh\""
+                    "commandToExecute": "[concat('/usr/bin/nohup /bin/bash -c \"/bin/bash /etc/docker-registry/manifests/create-blob.sh ', copyIndex(), ' \\\"', reference(concat('Microsoft.Network/networkInterfaces/', variables('nicNamePrefix'), copyIndex())).ipConfigurations[0].properties.privateIPAddress, '\\\" \"')]"
                 }
             }
         }
