@@ -54,6 +54,7 @@ write_files:
           - REGISTRY_STORAGE_AZURE_ACCOUNTKEY="<<<listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('registryStorageAccountName')), providers('Microsoft.Storage', 'storageAccounts').apiVersions[0]).keys[0].value>>>"
           - REGISTRY_STORAGE_AZURE_CONTAINER="<<<variables('registryStorageContainerName')>>>"
           - REGISTRY_STORAGE_AZURE_REALM="core.chinacloudapi.cn"
+          - REGISTRY_HTTP_SECRET="<<<variables('httpSecretString')>>>"
         deploy:
           replicas: 3
           restart_policy:

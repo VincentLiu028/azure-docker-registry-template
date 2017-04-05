@@ -1,5 +1,5 @@
 # Azure Docker Registry Template
-This is a Azure ARM template to deploy Docker registry on Azure China. 
+This is a Azure ARM template to deploy Docker registry on Azure China. ***Some urls are hard coded to Azure China now, so this template is NOT workable on Global Azure.***
 
 ## Overview
 
